@@ -76,9 +76,9 @@ describe("Bot end-to-end (offline, paper mode)", () => {
   it("discovers, safety-checks, buys, takes profit and trails out", async () => {
     bot.start();
 
-    await waitFor("paper buys", () => (state()?.positions.length ?? 0) >= 2);
+    await waitFor("paper buys", () => (state()?.positions.length ?? 0) >= 3);
     const bought = new Set(state()?.positions.map((p) => p.strategy));
-    assert.deepEqual([...bought].sort(), ["baseline", "quick_flip"], "only non-AI strategies may buy without a key");
+    assert.deepEqual([...bought].sort(), ["baseline", "lottery", "quick_flip"], "only non-AI strategies may buy without a key");
 
     const decisions = readFileSync(join(dir, "decisions.jsonl"), "utf8");
     assert.match(decisions, /needs AI but no XAI_API_KEY/);

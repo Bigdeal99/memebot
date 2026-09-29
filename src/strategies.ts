@@ -78,6 +78,23 @@ export function defaultStrategies(positionUsd: number): StrategyParams[] {
       maxHoldMin: 1440,
       timeStopMinGainPct: 30,
     },
+    {
+      ...common,
+      name: "lottery",
+      description:
+        "Many tiny bets hunting rare 10x-100x runners. Takes the stake back at 2x, then lets the rest ride for days.",
+      positionUsd: Math.max(1, Math.round(positionUsd * 0.4)),
+      maxOpen: 10,
+      minMomentum: 60,
+      requireAi: false,
+      stopLossPct: 50,
+      takeProfits: [{ multiple: 2, sellFraction: 0.5 }],
+      // Very wide trail: a real runner often drops 30-40% on the way up and would shake out a tight stop.
+      trailingStopPct: 50,
+      trailActivationMultiple: 3,
+      maxHoldMin: 3 * 24 * 60,
+      timeStopMinGainPct: 0,
+    },
   ];
 }
 
