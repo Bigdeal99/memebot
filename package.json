@@ -1,0 +1,22 @@
+{
+  "name": "memebot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Solana memecoin scanner + AI hype analyst + paper-trading strategy tournament",
+  "type": "module",
+  "engines": {
+    "node": ">=22.4"
+  },
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "doctor": "tsx src/doctor.ts",
+    "report": "tsx src/report.ts",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
