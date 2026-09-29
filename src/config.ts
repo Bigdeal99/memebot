@@ -22,6 +22,8 @@ function bool(name: string, fallback: boolean): boolean {
 }
 
 export interface FilterConfig {
+  /** Skip the first minutes of a pool: that is when snipers and devs dump, and the 1h stats are meaningless. */
+  minAgeMin: number;
   minLiquidityUsd: number;
   minMarketCapUsd: number;
   maxMarketCapUsd: number;
@@ -55,7 +57,7 @@ export const config = {
 
   discoveryEverySec: num("DISCOVERY_EVERY_SEC", 60),
   evaluateEverySec: num("EVALUATE_EVERY_SEC", 10),
-  monitorEverySec: num("MONITOR_EVERY_SEC", 15),
+  monitorEverySec: num("MONITOR_EVERY_SEC", 5),
   summaryEveryMin: num("SUMMARY_EVERY_MIN", 60),
   recheckAfterMin: num("RECHECK_AFTER_MIN", 5),
   maxChecksPerToken: num("MAX_CHECKS_PER_TOKEN", 12),
@@ -69,6 +71,7 @@ export const config = {
   },
 
   filters: {
+    minAgeMin: num("MIN_AGE_MIN", 60),
     minLiquidityUsd: num("MIN_LIQUIDITY_USD", 15_000),
     minMarketCapUsd: num("MIN_MCAP_USD", 30_000),
     maxMarketCapUsd: num("MAX_MCAP_USD", 3_000_000),

@@ -138,10 +138,16 @@ function printWallets(lines: WalletLine[]): void {
       "still open": l.openTrades,
     })),
   );
-  const best = [...lines].sort((a, b) => b.profitUsd - a.profitUsd)[0];
+  const traded = lines.filter((l) => l.closedTrades > 0 || l.openTrades > 0);
+  const best = [...traded].sort((a, b) => b.profitUsd - a.profitUsd)[0];
   const done = lines.reduce((sum, l) => sum + l.closedTrades, 0);
-  if (best && done > 0) {
-    console.log(`Best so far: ${best.strategy} (${best.profitUsd >= 0 ? "+" : ""}${money(best.profitUsd)}).`);
+  if (best && best.profitUsd > 0) {
+    console.log(`Best so far: ${best.strategy} (+${money(best.profitUsd)}).`);
+  } else if (traded.length > 0) {
+    console.log("No strategy that traded is in profit yet.");
+  }
+  for (const l of lines.filter((x) => x.closedTrades === 0 && x.openTrades === 0)) {
+    console.log(`${l.strategy} has not bought anything yet (its rules have not found a good enough coin).`);
   }
   console.log(
     done < 50 * lines.length

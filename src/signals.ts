@@ -14,12 +14,13 @@ export function computeSignals(pair: DexPair, now = Date.now()): Signals {
   const liquidityUsd = pair.liquidity?.usd ?? 0;
   const volumeM5Usd = pair.volume?.m5 ?? 0;
   const volumeH1Usd = pair.volume?.h1 ?? 0;
+  const ageMin = pair.pairCreatedAt ? (now - pair.pairCreatedAt) / 60_000 : Number.POSITIVE_INFINITY;
 
   return {
     priceUsd: Number(pair.priceUsd ?? 0),
     liquidityUsd,
     marketCapUsd: pair.marketCap ?? pair.fdv ?? 0,
-    ageMin: pair.pairCreatedAt ? (now - pair.pairCreatedAt) / 60_000 : Number.POSITIVE_INFINITY,
+    ageMin,
     buysM5,
     sellsM5,
     buysH1,
@@ -31,7 +32,8 @@ export function computeSignals(pair: DexPair, now = Date.now()): Signals {
     volumeH1Usd,
     volumeH24Usd: pair.volume?.h24 ?? 0,
     volumeToLiquidityH1: liquidityUsd > 0 ? volumeH1Usd / liquidityUsd : 0,
-    acceleration: volumeH1Usd > 0 ? (volumeM5Usd * 12) / volumeH1Usd : 0,
+    // Only meaningful once the pool has a full hour of history; for a 3-minute-old pool 5m volume IS the 1h volume.
+    acceleration: ageMin >= 60 && volumeH1Usd > 0 ? (volumeM5Usd * 12) / volumeH1Usd : 0,
     changeM5Pct: pair.priceChange?.m5 ?? 0,
     changeH1Pct: pair.priceChange?.h1 ?? 0,
     changeH6Pct: pair.priceChange?.h6 ?? 0,
@@ -45,6 +47,8 @@ export interface PrefilterResult {
   /** True when the token can never pass (too old / too big), so stop watching it. */
   permanent: boolean;
   reasons: string[];
+  /** Set when the pool is too young: minutes until it is old enough to look at again. */
+  waitMin?: number;
 }
 
 /** Cheap checks on DexScreener data, done before spending any RugCheck or AI calls. */
@@ -54,6 +58,8 @@ export function prefilter(s: Signals, f: FilterConfig): PrefilterResult {
 
   if (s.ageMin > f.maxAgeHours * 60) permanent.push(`older than ${f.maxAgeHours}h`);
   if (s.marketCapUsd > f.maxMarketCapUsd) permanent.push(`market cap $${Math.round(s.marketCapUsd)} above max`);
+  const tooYoung = s.ageMin < f.minAgeMin;
+  if (tooYoung) temporary.push(`pool only ${Math.round(s.ageMin)} min old (min ${f.minAgeMin})`);
   if (!(s.priceUsd > 0)) temporary.push("no price");
   if (s.liquidityUsd < f.minLiquidityUsd) temporary.push(`liquidity $${Math.round(s.liquidityUsd)} too low`);
   if (s.marketCapUsd < f.minMarketCapUsd) temporary.push(`market cap $${Math.round(s.marketCapUsd)} too low`);
@@ -64,6 +70,7 @@ export function prefilter(s: Signals, f: FilterConfig): PrefilterResult {
     pass: permanent.length === 0 && temporary.length === 0,
     permanent: permanent.length > 0,
     reasons: [...permanent, ...temporary],
+    ...(tooYoung ? { waitMin: f.minAgeMin - s.ageMin } : {}),
   };
 }
 

@@ -138,8 +138,15 @@ export class Bot {
     const signals = computeSignals(pair, now);
     const pre = prefilter(signals, this.cfg.filters);
     if (!pre.pass) {
-      if (pre.permanent) this.drop(w.mint, now);
-      else this.reschedule(w, now);
+      if (pre.permanent) {
+        this.drop(w.mint, now);
+      } else if (pre.waitMin !== undefined) {
+        // Too young: come back when it is old enough, without using up one of its checks.
+        w.checks--;
+        w.nextCheckAt = now + pre.waitMin * 60_000;
+      } else {
+        this.reschedule(w, now);
+      }
       return;
     }
 

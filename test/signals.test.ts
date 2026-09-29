@@ -37,6 +37,18 @@ describe("prefilter", () => {
     assert.equal(big.permanent, true);
   });
 
+  it("waits until a brand-new pool is an hour old instead of buying the launch dump", () => {
+    const r = prefilter(computeSignals(strongPair({ pairCreatedAt: NOW - 3 * 60_000 }), NOW), filters);
+    assert.equal(r.pass, false);
+    assert.equal(r.permanent, false);
+    assert.equal(r.waitMin, 57);
+  });
+
+  it("does not fake 'acceleration' for a pool younger than one hour", () => {
+    const young = computeSignals(strongPair({ pairCreatedAt: NOW - 3 * 60_000, volume: { m5: 30_000, h1: 30_000 } }), NOW);
+    assert.equal(young.acceleration, 0);
+  });
+
   it("keeps watching a token whose liquidity is still too low", () => {
     const r = prefilter(computeSignals(strongPair({ liquidity: { usd: 5_000 } }), NOW), filters);
     assert.equal(r.pass, false);

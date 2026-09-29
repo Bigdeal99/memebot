@@ -28,6 +28,7 @@ export function strongPair(overrides: Partial<DexPair> = {}): DexPair {
 }
 
 export const filters: FilterConfig = {
+  minAgeMin: 60,
   minLiquidityUsd: 15_000,
   minMarketCapUsd: 30_000,
   maxMarketCapUsd: 3_000_000,
