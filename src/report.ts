@@ -3,7 +3,7 @@ import { config } from "./config.js";
 import type { BookState } from "./paper/book.js";
 import { Store } from "./store.js";
 import { defaultStrategies } from "./strategies.js";
-import type { ClosedTrade } from "./types.js";
+import type { ClosedTrade, HypeVerdict } from "./types.js";
 
 export interface StrategyStats {
   strategy: string;
@@ -156,6 +156,47 @@ function printWallets(lines: WalletLine[]): void {
   );
 }
 
+interface DecisionRow {
+  mint: string;
+  symbol: string;
+  ai?: HypeVerdict | null;
+}
+
+export interface GrokSummary {
+  coins: number;
+  buy: number;
+  watch: number;
+  avoid: number;
+  avgHype: number;
+  avgOrganic: number;
+}
+
+/** Grok's latest verdict per coin (the journal repeats cached verdicts, so dedupe by mint). */
+export function grokSummary(decisions: DecisionRow[]): GrokSummary {
+  const latest = new Map<string, HypeVerdict>();
+  for (const d of decisions) if (d.ai) latest.set(d.mint, d.ai);
+  const all = [...latest.values()];
+  return {
+    coins: all.length,
+    buy: all.filter((v) => v.verdict === "buy").length,
+    watch: all.filter((v) => v.verdict === "watch").length,
+    avoid: all.filter((v) => v.verdict === "avoid").length,
+    avgHype: avg(all.map((v) => v.hype)),
+    avgOrganic: avg(all.map((v) => v.organic)),
+  };
+}
+
+function printGrok(g: GrokSummary): void {
+  if (g.coins === 0) {
+    console.log("\nGrok has not checked any coin yet (no coin passed all the safety and momentum checks).");
+    return;
+  }
+  console.log(
+    `\nGrok checked ${g.coins} coins: ${g.buy} buy, ${g.watch} watch, ${g.avoid} avoid ` +
+      `(average hype ${g.avgHype.toFixed(1)}/10, real-people score ${g.avgOrganic.toFixed(1)}/10).`,
+  );
+}
+
 function fmt(n: number, digits = 2): string {
   return Number.isFinite(n) ? n.toFixed(digits) : "-";
 }
@@ -165,6 +206,7 @@ function main(): void {
   const trades = store.readAll<ClosedTrade>("trades.jsonl");
   const names = defaultStrategies(config.paper.positionUsd).map((s) => s.name);
   printWallets(walletSummary(names, config.paper.bankrollUsd, store.loadJson<BookState>("state.json"), trades));
+  printGrok(grokSummary(store.readAll<DecisionRow>("decisions.jsonl")));
   if (trades.length === 0) return;
 
   console.log("\n\n----- Details for tuning the bot (you can skip everything below) -----");

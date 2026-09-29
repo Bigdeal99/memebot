@@ -77,6 +77,13 @@ describe("momentumScore", () => {
     assert.ok(vertical < strong - 20, `vertical ${vertical} should be far below ${strong}`);
   });
 
+  it("does not treat a coin down 40% in the last hour as momentum", () => {
+    const strong = momentumScore(computeSignals(strongPair(), NOW)).score;
+    const knife = momentumScore(computeSignals(strongPair({ priceChange: { m5: 2, h1: -40 } }), NOW));
+    assert.ok(knife.score < 50 && knife.score < strong, `falling knife scored ${knife.score}`);
+    assert.ok(knife.parts.dumpPenalty !== undefined && knife.parts.dumpPenalty < 0);
+  });
+
   it("halves the score while the price is dumping", () => {
     const dumping = momentumScore(computeSignals(strongPair({ priceChange: { m5: -25, h1: 60 } }), NOW));
     assert.ok(dumping.parts.dumpPenalty !== undefined && dumping.parts.dumpPenalty < 0);

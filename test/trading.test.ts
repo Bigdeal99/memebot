@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PaperBook, priceImpact } from "../src/paper/book.js";
 import { decideExit } from "../src/paper/exits.js";
-import { strategyStats, walletSummary } from "../src/report.js";
+import { grokSummary, strategyStats, walletSummary } from "../src/report.js";
 import { computeSignals } from "../src/signals.js";
 import { shouldEnter } from "../src/strategies.js";
 import type { HypeVerdict, Position } from "../src/types.js";
@@ -205,5 +205,20 @@ describe("walletSummary", () => {
       openTrades: 1,
     });
     assert.equal(lines[1]?.nowUsd, 50, "untouched strategy still has its starting money");
+  });
+});
+
+describe("grokSummary", () => {
+  it("counts each coin once, using its latest verdict", () => {
+    const v = (verdict: "buy" | "watch" | "avoid", hype: number) => ({
+      hype, organic: 1, mentions: "", narrative: "", redFlags: [], verdict, reason: "",
+    });
+    const g = grokSummary([
+      { mint: "A", symbol: "A", ai: v("avoid", 2) },
+      { mint: "A", symbol: "A", ai: v("buy", 8) },
+      { mint: "B", symbol: "B", ai: v("watch", 4) },
+      { mint: "C", symbol: "C", ai: null },
+    ]);
+    assert.deepEqual(g, { coins: 2, buy: 1, watch: 1, avoid: 0, avgHype: 6, avgOrganic: 1 });
   });
 });

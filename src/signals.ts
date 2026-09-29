@@ -105,8 +105,8 @@ export function momentumScore(s: Signals): MomentumScore {
   };
   const raw = Object.values(parts).reduce((a, b) => a + b, 0);
   let score = raw;
-  if (s.changeM5Pct < -15) {
-    score *= 0.5; // actively dumping right now
+  if (s.changeM5Pct < -15 || s.changeH1Pct < -20) {
+    score *= 0.5; // dumping now, or a falling knife over the last hour: that is not momentum
     parts.dumpPenalty = score - raw;
   } else if (s.changeM5Pct > 40 || s.changeH1Pct > 300) {
     score *= 0.5; // vertical candle: late buyers become exit liquidity
