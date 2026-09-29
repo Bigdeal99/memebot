@@ -5,6 +5,7 @@ import { Telegram } from "./notify/telegram.js";
 import { evaluateSafety } from "./safety.js";
 import { computeSignals } from "./signals.js";
 import { discoverSolanaTokens, getBestPairs } from "./sources/dexscreener.js";
+import { discoverTrending } from "./sources/geckoterminal.js";
 import { getRugReport } from "./sources/rugcheck.js";
 
 /** Well-known token used to sanity-check the APIs (BONK). */
@@ -50,6 +51,14 @@ async function main(): Promise<void> {
     await check("DexScreener discovery", async () => {
       const found = await discoverSolanaTokens();
       return `${found.length} Solana tokens in latest profiles/boosts`;
+    }),
+  );
+
+  results.push(
+    await check("GeckoTerminal trending", async () => {
+      const found = await discoverTrending();
+      if (found.length === 0) throw new Error("no trending Solana pools parsed");
+      return `${found.length} trending Solana tokens, e.g. ${found[0]?.mint}`;
     }),
   );
 

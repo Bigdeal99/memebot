@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { config } from "./config.js";
+import { type Funnel, topReasons } from "./funnel.js";
 import type { BookState } from "./paper/book.js";
 import { Store } from "./store.js";
 import { defaultStrategies } from "./strategies.js";
@@ -197,6 +198,19 @@ function printGrok(g: GrokSummary): void {
   );
 }
 
+function printFunnel(f: Funnel | null): void {
+  if (!f) return;
+  const hours = Math.max(0, (Date.now() - f.since) / 3_600_000);
+  console.log(`\n=== Where coins were rejected (last ${hours.toFixed(1)} hours) ===`);
+  console.log(`${f.checks} coin checks in total:`);
+  console.log(`  - ${f.tooYoung} too new (the bot waits until a coin is 1 hour old, then looks again)`);
+  console.log(`  - ${f.tooOldOrBig} too old or too big (dropped)`);
+  console.log(`  - ${f.failedBasics} failed the basic filters. Top reasons: ${topReasons(f.basicsReasons) || "-"}`);
+  console.log(`  - ${f.weakMomentum} not enough buying pressure / trend`);
+  console.log(`  - ${f.failedSafety} failed the rug-safety check. Top reasons: ${topReasons(f.safetyReasons) || "-"}`);
+  console.log(`  - ${f.askedGrok} asked Grok, ${f.bought} bought by at least one strategy`);
+}
+
 function fmt(n: number, digits = 2): string {
   return Number.isFinite(n) ? n.toFixed(digits) : "-";
 }
@@ -207,6 +221,7 @@ function main(): void {
   const names = defaultStrategies(config.paper.positionUsd).map((s) => s.name);
   printWallets(walletSummary(names, config.paper.bankrollUsd, store.loadJson<BookState>("state.json"), trades));
   printGrok(grokSummary(store.readAll<DecisionRow>("decisions.jsonl")));
+  printFunnel(store.loadJson<Funnel>("funnel.json"));
   if (trades.length === 0) return;
 
   console.log("\n\n----- Details for tuning the bot (you can skip everything below) -----");

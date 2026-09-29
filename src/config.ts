@@ -60,7 +60,7 @@ export const config = {
   monitorEverySec: num("MONITOR_EVERY_SEC", 5),
   summaryEveryMin: num("SUMMARY_EVERY_MIN", 60),
   recheckAfterMin: num("RECHECK_AFTER_MIN", 5),
-  maxChecksPerToken: num("MAX_CHECKS_PER_TOKEN", 12),
+  maxChecksPerToken: num("MAX_CHECKS_PER_TOKEN", 36),
   migrationDelayMin: num("MIGRATION_DELAY_MIN", 3),
   usePumpPortal: bool("USE_PUMPPORTAL", true),
 

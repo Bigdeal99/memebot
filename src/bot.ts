@@ -1,11 +1,13 @@
 import type { Config } from "./config.js";
 import { GrokAnalyst } from "./ai/grok.js";
+import { countReasons, type Funnel, newFunnel } from "./funnel.js";
 import { errorMessage } from "./log.js";
 import { Telegram } from "./notify/telegram.js";
 import { type BookEvent, type BookState, PaperBook } from "./paper/book.js";
 import { evaluateSafety } from "./safety.js";
 import { computeSignals, momentumScore, prefilter } from "./signals.js";
 import { discoverSolanaTokens, getBestPairs } from "./sources/dexscreener.js";
+import { discoverTrending } from "./sources/geckoterminal.js";
 import { PumpPortalFeed } from "./sources/pumpportal.js";
 import { getRugReport } from "./sources/rugcheck.js";
 import { type Store } from "./store.js";
@@ -21,6 +23,7 @@ interface Watch {
 }
 
 const STATE_FILE = "state.json";
+const FUNNEL_FILE = "funnel.json";
 const EVALUATE_BATCH = 30;
 /** How long a dropped token is ignored before discovery may add it again. */
 const IGNORE_DROPPED_MS = 6 * 60 * 60_000;
@@ -39,6 +42,7 @@ export class Bot {
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private stopped = false;
   private readonly minMomentum: number;
+  private readonly funnel: Funnel;
 
   constructor(
     private readonly cfg: Config,
@@ -51,6 +55,7 @@ export class Bot {
     this.telegram = new Telegram(cfg.telegram.botToken, cfg.telegram.chatId, log);
     this.pump = new PumpPortalFeed((mint) => this.add(mint, "pump-migration", cfg.migrationDelayMin), log);
     this.minMomentum = Math.min(...strategies.map((s) => s.minMomentum));
+    this.funnel = store.loadJson<Funnel>(FUNNEL_FILE) ?? newFunnel();
   }
 
   start(): void {
@@ -72,6 +77,7 @@ export class Bot {
     for (const t of this.timers.values()) clearTimeout(t);
     this.pump.stop();
     this.store.saveJson(STATE_FILE, this.book.snapshot());
+    this.store.saveJson(FUNNEL_FILE, this.funnel);
     this.log.info("Stopped, state saved");
   }
 
@@ -104,7 +110,11 @@ export class Bot {
     for (const [mint, until] of this.ignoredUntil) if (until <= now) this.ignoredUntil.delete(mint);
 
     const before = this.watch.size;
-    for (const d of await discoverSolanaTokens()) this.add(d.mint, d.source);
+    const results = await Promise.allSettled([discoverSolanaTokens(), discoverTrending()]);
+    const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failed.length === results.length) throw failed[0]?.reason;
+    for (const f of failed) this.log.warn(`One discovery source failed: ${errorMessage(f.reason)}`);
+    for (const r of results) if (r.status === "fulfilled") for (const d of r.value) this.add(d.mint, d.source);
     const added = this.watch.size - before;
     if (added > 0) this.log.info(`Discovered ${added} new tokens (watching ${this.watch.size})`);
   }
@@ -128,6 +138,7 @@ export class Bot {
         this.reschedule(w, Date.now());
       }
     }
+    this.store.saveJson(FUNNEL_FILE, this.funnel);
   }
 
   private async evaluate(w: Watch, pair: DexPair | undefined, now: number): Promise<void> {
@@ -137,26 +148,36 @@ export class Bot {
     const token: TokenRef = { mint: w.mint, symbol: pair.baseToken.symbol, name: pair.baseToken.name };
     const signals = computeSignals(pair, now);
     const pre = prefilter(signals, this.cfg.filters);
+    this.funnel.checks++;
     if (!pre.pass) {
       if (pre.permanent) {
+        this.funnel.tooOldOrBig++;
         this.drop(w.mint, now);
       } else if (pre.waitMin !== undefined) {
+        this.funnel.tooYoung++;
         // Too young: come back when it is old enough, without using up one of its checks.
         w.checks--;
         w.nextCheckAt = now + pre.waitMin * 60_000;
       } else {
+        this.funnel.failedBasics++;
+        countReasons(this.funnel.basicsReasons, pre.reasons);
         this.reschedule(w, now);
       }
       return;
     }
 
     const momentum = momentumScore(signals);
-    if (momentum.score < this.minMomentum) return this.reschedule(w, now);
+    if (momentum.score < this.minMomentum) {
+      this.funnel.weakMomentum++;
+      return this.reschedule(w, now);
+    }
 
     // Only tokens that already look strong cost us a RugCheck call.
     const safety = evaluateSafety(await getRugReport(w.mint, now), this.cfg.safety);
     const decision = { at: now, mint: w.mint, symbol: token.symbol, source: w.source, momentum: momentum.score };
     if (!safety.pass) {
+      this.funnel.failedSafety++;
+      countReasons(this.funnel.safetyReasons, safety.reasons);
       this.store.append("decisions.jsonl", { ...decision, stage: "safety", reasons: safety.reasons });
       if (safety.retryable) this.reschedule(w, now);
       else this.drop(w.mint, now);
@@ -169,11 +190,13 @@ export class Bot {
       (s) => s.requireAi && momentum.score >= s.minMomentum && this.book.canEnter(s.name, w.mint, now) === null,
     );
     if (this.grok.enabled && aiCouldBuy && momentum.score >= this.cfg.ai.minMomentumForAi) {
+      this.funnel.askedGrok++;
       ai = await this.grok.assess(token, signals, now);
       if (ai) this.log.info(`Grok on ${token.symbol}: ${ai.verdict} hype=${ai.hype} organic=${ai.organic} | ${ai.reason}`);
     }
 
     const outcomes: Record<string, string> = {};
+    let boughtAny = false;
     for (const st of this.strategies) {
       const blocked = this.book.canEnter(st.name, w.mint, now);
       if (blocked) {
@@ -183,6 +206,7 @@ export class Bot {
       const d = shouldEnter(st, momentum.score, ai, this.grok.enabled);
       outcomes[st.name] = d.enter ? `BUY: ${d.reason}` : `skip: ${d.reason}`;
       if (!d.enter) continue;
+      boughtAny = true;
 
       const pos = this.book.enter(
         st.name,
@@ -199,6 +223,7 @@ export class Bot {
       await this.telegram.send(msg);
     }
 
+    if (boughtAny) this.funnel.bought++;
     this.store.append("decisions.jsonl", {
       ...decision,
       stage: "entry",
@@ -253,6 +278,11 @@ export class Bot {
       const equity = this.book.cashOf(s.name) + openValue;
       return `${s.name}: equity ~${usd(equity)} | open ${open.length} | today ${usd(this.book.todayPnl(s.name))}`;
     });
+    const f = this.funnel;
+    lines.push(
+      `Pipeline: ${f.checks} checks | too young ${f.tooYoung} | failed basics ${f.failedBasics} | weak momentum ${f.weakMomentum} | ` +
+        `failed safety ${f.failedSafety} | asked Grok ${f.askedGrok} | bought ${f.bought}`,
+    );
     const msg = `📊 Paper summary (AI calls today: ${this.grok.callsUsedToday()}/${this.cfg.ai.maxCallsPerDay})\n${lines.join("\n")}`;
     this.log.info(msg);
     await this.telegram.send(msg);
