@@ -63,8 +63,8 @@ export const config = {
   usePumpPortal: bool("USE_PUMPPORTAL", true),
 
   paper: {
-    bankrollUsd: num("PAPER_BANKROLL_USD", 1000),
-    positionUsd: num("POSITION_USD", 25),
+    bankrollUsd: num("PAPER_BANKROLL_USD", 50),
+    positionUsd: num("POSITION_USD", 5),
     frictionPctPerSide: num("FRICTION_PCT_PER_SIDE", 1.0),
   },
 

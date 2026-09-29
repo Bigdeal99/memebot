@@ -19,7 +19,7 @@ PumpPortal  (Pump.fun graduations, live)  ─┴─► watchlist ─► every 5 
  3. SAFETY     RugCheck: mint/freeze authority revoked, LP ≥80% locked/burned, top-10 ≤30%,
                no wallet >10%, insiders ≤10%, no "danger" flags. ANY failure = never buy.       (free)
  4. AI         Grok + X search: hype 0–10, organic-vs-bots 0–10, red flags, buy/watch/avoid.   (paid, capped)
- 5. ENTRY      each strategy decides on its own paper bankroll ($1000, $25 per trade)
+ 5. ENTRY      each strategy decides on its own paper bankroll ($50, $5 per trade)
  6. EXITS      every 15s: stop loss, take-profit ladder, trailing stop, time stop, rug detection
  7. JOURNAL    data/trades.jsonl, data/decisions.jsonl, data/state.json + Telegram alerts
 ```

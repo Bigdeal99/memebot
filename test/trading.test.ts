@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PaperBook, priceImpact } from "../src/paper/book.js";
 import { decideExit } from "../src/paper/exits.js";
-import { strategyStats } from "../src/report.js";
+import { strategyStats, walletSummary } from "../src/report.js";
 import { computeSignals } from "../src/signals.js";
 import { shouldEnter } from "../src/strategies.js";
 import type { HypeVerdict, Position } from "../src/types.js";
@@ -180,5 +180,30 @@ describe("strategyStats", () => {
     assert.equal(s.pnlUsd, 50);
     assert.equal(s.expectancyUsd, 12.5);
     assert.equal(s.maxDrawdownUsd, 20);
+  });
+});
+
+describe("walletSummary", () => {
+  it("shows start vs. now per strategy, counting open positions at their last price", () => {
+    const base = position({ strategy: "a", remainingTokens: 10, lastPriceUsd: 0.6 });
+    const closed = { ...base, closedAt: 1, pnlUsd: 2, pnlPct: 40, peakMultiple: 2, exitReason: "x" };
+    const lines = walletSummary(
+      ["a", "b"],
+      50,
+      { cash: { a: 47 }, positions: [base], daily: {}, lastClosed: {} },
+      [closed, { ...closed, pnlUsd: -1 }],
+    );
+    assert.deepEqual(lines[0], {
+      strategy: "a",
+      startUsd: 50,
+      nowUsd: 53,
+      profitUsd: 3,
+      profitPct: 6,
+      closedTrades: 2,
+      wins: 1,
+      losses: 1,
+      openTrades: 1,
+    });
+    assert.equal(lines[1]?.nowUsd, 50, "untouched strategy still has its starting money");
   });
 });

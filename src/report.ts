@@ -1,6 +1,8 @@
 import { pathToFileURL } from "node:url";
 import { config } from "./config.js";
+import type { BookState } from "./paper/book.js";
 import { Store } from "./store.js";
+import { defaultStrategies } from "./strategies.js";
 import type { ClosedTrade } from "./types.js";
 
 export interface StrategyStats {
@@ -80,17 +82,86 @@ export function featureComparison(trades: ClosedTrade[]): { feature: string; win
   }));
 }
 
+export interface WalletLine {
+  strategy: string;
+  startUsd: number;
+  nowUsd: number;
+  profitUsd: number;
+  profitPct: number;
+  closedTrades: number;
+  wins: number;
+  losses: number;
+  openTrades: number;
+}
+
+/** Plain "started with $X, now worth $Y" per strategy. Open trades are valued at their last seen price. */
+export function walletSummary(
+  strategies: string[],
+  startUsd: number,
+  state: BookState | null,
+  trades: ClosedTrade[],
+): WalletLine[] {
+  return strategies.map((strategy) => {
+    const open = (state?.positions ?? []).filter((p) => p.strategy === strategy);
+    const openValue = open.reduce((sum, p) => sum + p.remainingTokens * p.lastPriceUsd, 0);
+    const nowUsd = (state?.cash[strategy] ?? startUsd) + openValue;
+    const closed = trades.filter((t) => t.strategy === strategy);
+    return {
+      strategy,
+      startUsd,
+      nowUsd,
+      profitUsd: nowUsd - startUsd,
+      profitPct: startUsd > 0 ? ((nowUsd - startUsd) / startUsd) * 100 : 0,
+      closedTrades: closed.length,
+      wins: closed.filter((t) => t.pnlUsd > 0).length,
+      losses: closed.filter((t) => t.pnlUsd <= 0).length,
+      openTrades: open.length,
+    };
+  });
+}
+
+function money(n: number): string {
+  return `${n < 0 ? "-" : ""}$${Math.abs(n).toFixed(2)}`;
+}
+
+function printWallets(lines: WalletLine[]): void {
+  console.log(`\n=== Your fake money: each strategy started with ${money(lines[0]?.startUsd ?? 0)} ===`);
+  console.table(
+    lines.map((l) => ({
+      strategy: l.strategy,
+      "started with": money(l.startUsd),
+      "worth now": money(l.nowUsd),
+      "profit / loss": `${l.profitUsd >= 0 ? "+" : ""}${money(l.profitUsd)} (${l.profitPct >= 0 ? "+" : ""}${l.profitPct.toFixed(1)}%)`,
+      "trades done": l.closedTrades,
+      won: l.wins,
+      lost: l.losses,
+      "still open": l.openTrades,
+    })),
+  );
+  const best = [...lines].sort((a, b) => b.profitUsd - a.profitUsd)[0];
+  const done = lines.reduce((sum, l) => sum + l.closedTrades, 0);
+  if (best && done > 0) {
+    console.log(`Best so far: ${best.strategy} (${best.profitUsd >= 0 ? "+" : ""}${money(best.profitUsd)}).`);
+  }
+  console.log(
+    done < 50 * lines.length
+      ? `Only ${done} trades finished so far. Results are mostly luck until each strategy has about 50.`
+      : "Enough trades to start trusting these numbers.",
+  );
+}
+
 function fmt(n: number, digits = 2): string {
   return Number.isFinite(n) ? n.toFixed(digits) : "-";
 }
 
 function main(): void {
-  const trades = new Store(config.dataDir).readAll<ClosedTrade>("trades.jsonl");
-  if (trades.length === 0) {
-    console.log("No closed paper trades yet. Let the bot run for a while (hours to days).");
-    return;
-  }
+  const store = new Store(config.dataDir);
+  const trades = store.readAll<ClosedTrade>("trades.jsonl");
+  const names = defaultStrategies(config.paper.positionUsd).map((s) => s.name);
+  printWallets(walletSummary(names, config.paper.bankrollUsd, store.loadJson<BookState>("state.json"), trades));
+  if (trades.length === 0) return;
 
+  console.log("\n\n----- Details for tuning the bot (you can skip everything below) -----");
   const byStrategy = Map.groupBy(trades, (t) => t.strategy);
   console.log(`\n=== Strategy tournament (${trades.length} closed paper trades) ===`);
   console.table(
