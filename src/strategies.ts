@@ -98,6 +98,22 @@ export function defaultStrategies(positionUsd: number): StrategyParams[] {
     },
     {
       ...common,
+      name: "deep_pool",
+      description:
+        "Built from the paper data: only coins with a $100k+ pool (winners had ~$150k, losers ~$42k). Deep pools " +
+        "gap less, so a tighter stop actually holds.",
+      minLiquidityUsd: 100_000,
+      minMomentum: 55,
+      requireAi: false,
+      stopLossPct: 20,
+      takeProfits: [{ multiple: 1.5, sellFraction: 0.5 }],
+      trailingStopPct: 20,
+      trailActivationMultiple: 1.3,
+      maxHoldMin: 240,
+      timeStopMinGainPct: 10,
+    },
+    {
+      ...common,
       name: "basket",
       description:
         "Up to 50 coins in equal slices. Sells ALL when the basket doubles, halves or turns 7 days old, then goes again with everything.",
@@ -128,7 +144,11 @@ export function shouldEnter(
   momentum: number,
   ai: HypeVerdict | null,
   aiEnabled: boolean,
+  liquidityUsd = Number.POSITIVE_INFINITY,
 ): EntryDecision {
+  if (st.minLiquidityUsd !== undefined && liquidityUsd < st.minLiquidityUsd) {
+    return { enter: false, reason: `pool $${Math.round(liquidityUsd)} < $${st.minLiquidityUsd}` };
+  }
   if (momentum < st.minMomentum) return { enter: false, reason: `momentum ${momentum} < ${st.minMomentum}` };
   if (!st.requireAi) return { enter: true, reason: `momentum ${momentum}` };
 

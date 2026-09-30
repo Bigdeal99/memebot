@@ -154,6 +154,12 @@ describe("shouldEnter", () => {
     assert.equal(shouldEnter(st, 50, null, false).enter, false);
   });
 
+  it("respects a strategy's own minimum pool size", () => {
+    const st = strategy({ minLiquidityUsd: 100_000 });
+    assert.equal(shouldEnter(st, 80, null, false, 42_000).enter, false);
+    assert.equal(shouldEnter(st, 80, null, false, 150_000).enter, true);
+  });
+
   it("AI strategies need a confident, organic buy verdict", () => {
     const st = strategy({ requireAi: true, minHype: 5, minOrganic: 5 });
     assert.equal(shouldEnter(st, 65, verdict({}), true).enter, true);

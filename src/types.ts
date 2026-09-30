@@ -129,6 +129,8 @@ export interface StrategyParams {
   trailActivationMultiple: number;
   maxHoldMin: number;
   timeStopMinGainPct: number;
+  /** Strategy-specific minimum pool size, on top of the global filter. */
+  minLiquidityUsd?: number;
   basket?: BasketParams;
 }
 

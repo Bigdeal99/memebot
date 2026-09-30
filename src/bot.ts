@@ -203,7 +203,7 @@ export class Bot {
         outcomes[st.name] = `skip: ${blocked}`;
         continue;
       }
-      const d = shouldEnter(st, momentum.score, ai, this.grok.enabled);
+      const d = shouldEnter(st, momentum.score, ai, this.grok.enabled, signals.liquidityUsd);
       outcomes[st.name] = d.enter ? `BUY: ${d.reason}` : `skip: ${d.reason}`;
       if (!d.enter) continue;
       boughtAny = true;
