@@ -96,6 +96,25 @@ export function defaultStrategies(positionUsd: number): StrategyParams[] {
       maxHoldMin: 3 * 24 * 60,
       timeStopMinGainPct: 0,
     },
+    {
+      ...common,
+      name: "basket",
+      description:
+        "Up to 50 coins in equal slices. Sells ALL when the basket doubles, halves or turns 7 days old, then goes again with everything.",
+      positionUsd: 0, // set per round by the book: round money / slots
+      maxOpen: 50,
+      minMomentum: 50,
+      requireAi: false,
+      dailyLossLimitUsd: Number.MAX_SAFE_INTEGER, // the basket floor replaces the daily limit
+      // Single coins are never sold on their own (only a rug empties them); the basket decides.
+      stopLossPct: 100,
+      takeProfits: [],
+      trailingStopPct: 100,
+      trailActivationMultiple: Number.MAX_SAFE_INTEGER,
+      maxHoldMin: Number.MAX_SAFE_INTEGER,
+      timeStopMinGainPct: 0,
+      basket: { slots: 50, targetMultiple: 2, stopMultiple: 0.5, maxRoundMin: 7 * 24 * 60 },
+    },
   ];
 }
 

@@ -250,8 +250,18 @@ export class Bot {
       events = events.concat(this.book.onPrice(mint, price, pair.liquidity?.usd ?? 0, now));
     }
 
+    const baskets = this.book.checkBaskets(now);
+    events = events.concat(baskets.events);
     for (const e of events) await this.report(e);
-    if (events.length > 0) this.store.saveJson(STATE_FILE, this.book.snapshot());
+    for (const r of baskets.rounds) {
+      const label = { target: "🎯 GOAL HIT", floor: "🛑 FLOOR HIT", time: "⏰ TIME UP" }[r.reason];
+      const msg =
+        `${label} [${r.strategy}] round ${r.round} closed: ${usd(r.startEquityUsd)} → ${usd(r.equityUsd)}. ` +
+        `Round ${r.round + 1} starts with ${usd(r.equityUsd)}.`;
+      this.log.info(msg);
+      await this.telegram.send(msg);
+    }
+    if (events.length > 0 || baskets.rounds.length > 0) this.store.saveJson(STATE_FILE, this.book.snapshot());
   }
 
   private async report(e: BookEvent): Promise<void> {

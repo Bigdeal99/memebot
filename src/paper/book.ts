@@ -11,11 +11,26 @@ export function priceImpact(sizeUsd: number, liquidityUsd: number): number {
   return Math.min(0.99, sizeUsd / (liquidityUsd / 2));
 }
 
+export interface BasketRound {
+  round: number;
+  startEquityUsd: number;
+  startedAt: number;
+}
+
 export interface BookState {
   cash: Record<string, number>;
   positions: Position[];
   daily: Record<string, { day: string; pnlUsd: number }>;
   lastClosed: Record<string, number>;
+  rounds?: Record<string, BasketRound>;
+}
+
+export interface RoundEvent {
+  strategy: string;
+  reason: "target" | "floor" | "time";
+  round: number;
+  equityUsd: number;
+  startEquityUsd: number;
 }
 
 export type BookEvent =
@@ -40,6 +55,27 @@ export class PaperBook {
     for (const s of strategies) this.strategies.set(s.name, s);
     this.state = saved ?? { cash: {}, positions: [], daily: {}, lastClosed: {} };
     for (const s of strategies) this.state.cash[s.name] ??= opts.bankrollUsd;
+    this.state.rounds ??= {};
+    for (const s of strategies) {
+      if (s.basket) this.state.rounds[s.name] ??= { round: 1, startEquityUsd: this.cashOf(s.name), startedAt: Date.now() };
+    }
+  }
+
+  roundOf(strategy: string): BasketRound | undefined {
+    return this.state.rounds?.[strategy];
+  }
+
+  /** Cash plus open positions at their last seen price. */
+  equity(strategy: string): number {
+    return this.state.positions
+      .filter((p) => p.strategy === strategy)
+      .reduce((sum, p) => sum + p.remainingTokens * p.lastPriceUsd, this.cashOf(strategy));
+  }
+
+  /** Basket strategies split the round's starting money into equal slices; others use a fixed size. */
+  positionSize(st: StrategyParams): number {
+    const round = this.roundOf(st.name);
+    return st.basket && round ? round.startEquityUsd / st.basket.slots : st.positionUsd;
   }
 
   snapshot(): BookState {
@@ -74,8 +110,9 @@ export class PaperBook {
     const st = this.strategy(strategyName);
     const mine = this.state.positions.filter((p) => p.strategy === st.name);
     if (mine.some((p) => p.mint === mint)) return "already holding";
-    if (mine.length >= st.maxOpen) return `max ${st.maxOpen} open positions`;
-    if (this.cashOf(st.name) < st.positionUsd) return "not enough cash";
+    const maxOpen = st.basket?.slots ?? st.maxOpen;
+    if (mine.length >= maxOpen) return `max ${maxOpen} open positions`;
+    if (this.cashOf(st.name) < this.positionSize(st) - 1e-9) return "not enough cash";
     if (this.todayPnl(st.name, now) <= -st.dailyLossLimitUsd) return "daily loss limit hit";
     const closedAt = this.state.lastClosed[`${st.name}:${mint}`];
     if (closedAt !== undefined && now - closedAt < st.reentryCooldownMin * 60_000) return "re-entry cooldown";
@@ -95,9 +132,10 @@ export class PaperBook {
     if (blocked) throw new Error(`Cannot enter ${token.symbol} for ${st.name}: ${blocked}`);
     if (!(priceUsd > 0)) throw new Error(`Invalid price for ${token.symbol}`);
 
+    const size = this.positionSize(st);
     const friction = this.opts.frictionPctPerSide / 100;
-    const effectiveEntryUsd = priceUsd * (1 + friction + priceImpact(st.positionUsd, liquidityUsd));
-    const tokens = st.positionUsd / effectiveEntryUsd;
+    const effectiveEntryUsd = priceUsd * (1 + friction + priceImpact(size, liquidityUsd));
+    const tokens = size / effectiveEntryUsd;
 
     const pos: Position = {
       id: randomUUID(),
@@ -108,17 +146,18 @@ export class PaperBook {
       openedAt: now,
       entryPriceUsd: priceUsd,
       effectiveEntryUsd,
-      costUsd: st.positionUsd,
+      costUsd: size,
       tokens,
       remainingTokens: tokens,
       proceedsUsd: 0,
       peakPriceUsd: priceUsd,
       lastPriceUsd: priceUsd,
+      lastLiquidityUsd: liquidityUsd,
       takeProfitsHit: [],
       exits: [],
       features,
     };
-    this.state.cash[st.name] = this.cashOf(st.name) - st.positionUsd;
+    this.state.cash[st.name] = this.cashOf(st.name) - size;
     this.state.positions.push(pos);
     return pos;
   }
@@ -129,6 +168,7 @@ export class PaperBook {
     for (const pos of this.state.positions.filter((p) => p.mint === mint)) {
       const st = this.strategy(pos.strategy);
       pos.lastPriceUsd = priceUsd;
+      pos.lastLiquidityUsd = liquidityUsd;
       if (priceUsd > pos.peakPriceUsd) pos.peakPriceUsd = priceUsd;
 
       const decision = decideExit(pos, st, priceUsd, liquidityUsd, now);
@@ -144,6 +184,43 @@ export class PaperBook {
       }
     }
     return events;
+  }
+
+  /**
+   * Closes every coin of a basket strategy when the whole basket reaches its target, its floor or its time
+   * limit, then starts the next round with everything the basket is worth.
+   */
+  checkBaskets(now = Date.now()): { events: BookEvent[]; rounds: RoundEvent[] } {
+    const events: BookEvent[] = [];
+    const rounds: RoundEvent[] = [];
+    for (const st of this.strategies.values()) {
+      const round = this.roundOf(st.name);
+      if (!st.basket || !round) continue;
+      const open = this.state.positions.filter((p) => p.strategy === st.name);
+      const equity = this.equity(st.name);
+      const expired = now - round.startedAt >= st.basket.maxRoundMin * 60_000;
+      const reason: RoundEvent["reason"] | null =
+        equity >= round.startEquityUsd * st.basket.targetMultiple
+          ? "target"
+          : equity <= round.startEquityUsd * st.basket.stopMultiple
+            ? "floor"
+            : expired
+              ? "time"
+              : null;
+      if (!reason) continue;
+      if (open.length === 0) {
+        round.startedAt = now; // nothing to close: just restart the clock
+        continue;
+      }
+      for (const pos of open) {
+        const why = `basket ${reason}`;
+        const fill = this.sell(pos, pos.remainingTokens, pos.lastPriceUsd, pos.lastLiquidityUsd ?? 0, why, now);
+        events.push({ type: "closed", position: pos, fill, trade: this.close(pos, why, now) });
+      }
+      rounds.push({ strategy: st.name, reason, round: round.round, equityUsd: this.cashOf(st.name), startEquityUsd: round.startEquityUsd });
+      this.state.rounds![st.name] = { round: round.round + 1, startEquityUsd: this.cashOf(st.name), startedAt: now };
+    }
+    return { events, rounds };
   }
 
   private sell(pos: Position, tokens: number, priceUsd: number, liquidityUsd: number, reason: string, now: number): ExitFill {

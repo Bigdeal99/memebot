@@ -222,3 +222,62 @@ describe("grokSummary", () => {
     assert.deepEqual(g, { coins: 2, buy: 1, watch: 1, avoid: 0, avgHype: 6, avgOrganic: 1 });
   });
 });
+
+describe("basket strategy", () => {
+  const basket = strategy({
+    name: "basket",
+    positionUsd: 0,
+    maxOpen: 2,
+    stopLossPct: 100,
+    takeProfits: [],
+    trailingStopPct: 100,
+    trailActivationMultiple: Number.MAX_SAFE_INTEGER,
+    maxHoldMin: Number.MAX_SAFE_INTEGER,
+    dailyLossLimitUsd: Number.MAX_SAFE_INTEGER,
+    basket: { slots: 2, targetMultiple: 2, stopMultiple: 0.5, maxRoundMin: 7 * 24 * 60 },
+  });
+  const BIG = 1e12; // huge pool: no price impact, so the math is exact
+  const f = () => features(computeSignals(strongPair(), NOW));
+  const coin = (mint: string) => ({ mint, symbol: mint, name: mint });
+
+  it("splits the round into equal slices and fills up to the slot count", () => {
+    const book = new PaperBook([basket], { bankrollUsd: 100, frictionPctPerSide: 0 });
+    assert.equal(book.positionSize(basket), 50);
+    book.enter("basket", coin("A"), 1, BIG, f(), NOW);
+    book.enter("basket", coin("B"), 1, BIG, f(), NOW);
+    assert.equal(book.canEnter("basket", "C", NOW), "max 2 open positions");
+  });
+
+  it("never sells a single coin on a normal move; closes everything when the basket doubles", () => {
+    const book = new PaperBook([basket], { bankrollUsd: 100, frictionPctPerSide: 0 });
+    book.enter("basket", coin("A"), 1, BIG, f(), NOW);
+    book.enter("basket", coin("B"), 1, BIG, f(), NOW);
+    assert.deepEqual(book.onPrice("A", 0.3, BIG, NOW + MIN), [], "a -70% coin is held, not stopped out");
+    assert.deepEqual(book.checkBaskets(NOW + MIN).rounds, []);
+
+    book.onPrice("B", 3.8, BIG, NOW + 2 * MIN); // 50*0.3 + 50*3.8 = 205 >= 200
+    const { events, rounds } = book.checkBaskets(NOW + 2 * MIN);
+    assert.equal(events.length, 2);
+    assert.equal(rounds[0]?.reason, "target");
+    assert.equal(book.positions.length, 0);
+    const next = book.roundOf("basket");
+    assert.equal(next?.round, 2);
+    assert.ok(Math.abs((next?.startEquityUsd ?? 0) - 205) < 1e-6);
+    assert.ok(Math.abs(book.positionSize(basket) - 102.5) < 1e-6, "round 2 bets with the grown money");
+  });
+
+  it("closes everything at the floor and after the time limit", () => {
+    const floor = new PaperBook([basket], { bankrollUsd: 100, frictionPctPerSide: 0 });
+    floor.enter("basket", coin("A"), 1, BIG, f(), NOW);
+    floor.onPrice("A", 0.01, BIG, NOW + MIN); // 50 cash + 0.5 = 50.5 > 50: not yet
+    assert.deepEqual(floor.checkBaskets(NOW + MIN).rounds, []);
+    floor.enter("basket", coin("B"), 1, BIG, f(), NOW + MIN);
+    floor.onPrice("B", 0.5, BIG, NOW + 2 * MIN); // 0.5 + 25 = 25.5 <= 50
+    assert.equal(floor.checkBaskets(NOW + 2 * MIN).rounds[0]?.reason, "floor");
+
+    const timed = new PaperBook([basket], { bankrollUsd: 100, frictionPctPerSide: 0 });
+    timed.enter("basket", coin("A"), 1, BIG, f(), NOW);
+    const later = (timed.roundOf("basket")?.startedAt ?? NOW) + 7 * 24 * 60 * MIN;
+    assert.equal(timed.checkBaskets(later).rounds[0]?.reason, "time");
+  });
+});

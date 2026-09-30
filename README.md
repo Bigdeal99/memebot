@@ -27,7 +27,7 @@ PumpPortal  (Pump.fun graduations, live)  ─┴─► watchlist ─► every 5 
 Paper fills are deliberately pessimistic: 1% friction per side **plus** AMM price impact
 (size ÷ half the pool). Paper results that ignore slippage lie, and these would mislead you.
 
-## The strategy tournament (5 strategies)
+## The strategy tournament (6 strategies)
 
 | Strategy | Entry | Exit |
 |---|---|---|
@@ -36,6 +36,7 @@ Paper fills are deliberately pessimistic: 1% friction per side **plus** AMM pric
 | `quick_flip` | momentum ≥70, no AI | −20% stop · all out at +40% · 45 min |
 | `moonshot` | momentum ≥65 + hype ≥7, organic ≥6 | −35% stop · ⅓ at 2x · ⅓ at 5x · 40% trail on the runner · 24h |
 | `lottery` | momentum ≥50, no AI · tiny bets (40% of normal size), up to 10 at once | −50% stop · half at 2x (stake back) · rest rides with a 50% trail for up to 3 days |
+| `basket` | momentum ≥50, no AI · up to 50 coins, each 1/50 of the round's money | no single-coin exits · sells **everything** when the basket hits 2x, drops to 0.5x or is 7 days old, then starts the next round with all of it |
 
 All strategies share these guards: max 5 open positions, a daily loss limit (4 × position size),
 and no re-buying the same token within 6h (no revenge trades).

@@ -4,7 +4,7 @@ import { type Funnel, topReasons } from "./funnel.js";
 import type { BookState } from "./paper/book.js";
 import { Store } from "./store.js";
 import { defaultStrategies } from "./strategies.js";
-import type { ClosedTrade, HypeVerdict } from "./types.js";
+import type { BasketParams, ClosedTrade, HypeVerdict } from "./types.js";
 
 export interface StrategyStats {
   strategy: string;
@@ -198,6 +198,27 @@ function printGrok(g: GrokSummary): void {
   );
 }
 
+export function basketLines(
+  state: BookState | null,
+  names: string[],
+  paramsOf: (name: string) => BasketParams | undefined,
+): string[] {
+  const lines: string[] = [];
+  for (const name of names) {
+    const r = state?.rounds?.[name];
+    const b = paramsOf(name);
+    if (!r || !b) continue;
+    const open = (state?.positions ?? []).filter((p) => p.strategy === name);
+    const now = open.reduce((sum, p) => sum + p.remainingTokens * p.lastPriceUsd, state?.cash[name] ?? 0);
+    lines.push(
+      `${name}: round ${r.round} | started this round with ${money(r.startEquityUsd)} | worth now ${money(now)} | ` +
+        `goal ${money(r.startEquityUsd * b.targetMultiple)} | floor ${money(r.startEquityUsd * b.stopMultiple)} | ` +
+        `coins ${open.length}/${b.slots}`,
+    );
+  }
+  return lines;
+}
+
 function printFunnel(f: Funnel | null): void {
   if (!f) return;
   const hours = Math.max(0, (Date.now() - f.since) / 3_600_000);
@@ -219,7 +240,12 @@ function main(): void {
   const store = new Store(config.dataDir);
   const trades = store.readAll<ClosedTrade>("trades.jsonl");
   const names = defaultStrategies(config.paper.positionUsd).map((s) => s.name);
-  printWallets(walletSummary(names, config.paper.bankrollUsd, store.loadJson<BookState>("state.json"), trades));
+  const state = store.loadJson<BookState>("state.json");
+  printWallets(walletSummary(names, config.paper.bankrollUsd, state, trades));
+  const strategies = defaultStrategies(config.paper.positionUsd);
+  for (const line of basketLines(state, names, (n) => strategies.find((s) => s.name === n)?.basket)) {
+    console.log(`\n${line}`);
+  }
   printGrok(grokSummary(store.readAll<DecisionRow>("decisions.jsonl")));
   printFunnel(store.loadJson<Funnel>("funnel.json"));
   if (trades.length === 0) return;

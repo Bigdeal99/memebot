@@ -99,6 +99,18 @@ export interface TakeProfit {
   sellFraction: number;
 }
 
+/**
+ * Basket mode: fill up to `slots` coins with equal slices of the round's money, ignore single-coin exits,
+ * and close EVERYTHING when the whole basket hits the target, the floor or the time limit. Then start again
+ * with whatever the basket is worth.
+ */
+export interface BasketParams {
+  slots: number;
+  targetMultiple: number;
+  stopMultiple: number;
+  maxRoundMin: number;
+}
+
 export interface StrategyParams {
   name: string;
   description: string;
@@ -117,6 +129,7 @@ export interface StrategyParams {
   trailActivationMultiple: number;
   maxHoldMin: number;
   timeStopMinGainPct: number;
+  basket?: BasketParams;
 }
 
 export interface ExitFill {
@@ -142,6 +155,7 @@ export interface Position {
   proceedsUsd: number;
   peakPriceUsd: number;
   lastPriceUsd: number;
+  lastLiquidityUsd?: number;
   takeProfitsHit: number[];
   exits: ExitFill[];
   features: EntryFeatures;
