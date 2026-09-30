@@ -31,11 +31,11 @@ Paper fills are deliberately pessimistic: 1% friction per side **plus** AMM pric
 
 | Strategy | Entry | Exit |
 |---|---|---|
-| `hype_momentum` | momentum ≥60 + Grok "buy", hype ≥5, organic ≥5 | −30% stop · half at 2x · 30% trailing stop · 6h time stop |
+| `hype_momentum` | momentum ≥60 + Grok "buy" or "watch", hype ≥4, organic ≥4 (no red flags) | −30% stop · half at 2x · 30% trailing stop · 6h time stop |
 | `baseline` | **same rules, ignores the AI** (control group) | same as above |
 | `quick_flip` | momentum ≥70, no AI | −20% stop · all out at +40% · 45 min |
 | `moonshot` | momentum ≥65 + hype ≥7, organic ≥6 | −35% stop · ⅓ at 2x · ⅓ at 5x · 40% trail on the runner · 24h |
-| `lottery` | momentum ≥60, no AI · tiny bets (40% of normal size), up to 10 at once | −50% stop · half at 2x (stake back) · rest rides with a 50% trail for up to 3 days |
+| `lottery` | momentum ≥50, no AI · tiny bets (40% of normal size), up to 10 at once | −50% stop · half at 2x (stake back) · rest rides with a 50% trail for up to 3 days |
 
 All strategies share these guards: max 5 open positions, a daily loss limit (4 × position size),
 and no re-buying the same token within 6h (no revenge trades).
