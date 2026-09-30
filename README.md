@@ -13,9 +13,9 @@ the AI earns its cost. Only a winner goes live (step 2).
 DexScreener (new profiles & paid boosts)  ─┐
 PumpPortal  (Pump.fun graduations, live)  ─┴─► watchlist ─► every 5 min, up to 12 checks per token:
 
- 1. PREFILTER  liquidity ≥ $15k, mcap $30k–$3M, age < 48h, ≥150 txns/h, ≥$10k volume/h       (free)
+ 1. PREFILTER  liquidity ≥ $15k, mcap $30k–$30M, age < 48h, ≥150 txns/h, ≥$10k volume/h       (free)
  2. MOMENTUM   0–100 score: buy pressure, volume acceleration, turnover, trend.                  (free)
-               Halved if dumping or vertical (+40%/5m or +300%/1h): we refuse to buy tops.
+               Rewards deep pools and early moves; halved if dumping or vertical (+40%/5m or +150%/1h).
  3. SAFETY     RugCheck: mint/freeze authority revoked, LP ≥80% locked/burned, top-10 ≤30%,
                no wallet >10%, insiders ≤10%, no "danger" flags. ANY failure = never buy.       (free)
  4. AI         Grok + X search: hype 0–10, organic-vs-bots 0–10, red flags, buy/watch/avoid.   (paid, capped)

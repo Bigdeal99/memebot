@@ -84,6 +84,18 @@ describe("momentumScore", () => {
     assert.ok(knife.parts.dumpPenalty !== undefined && knife.parts.dumpPenalty < 0);
   });
 
+  it("prefers an early move over one that already pumped ~90% this hour", () => {
+    const early = momentumScore(computeSignals(strongPair({ priceChange: { m5: 5, h1: 40 } }), NOW)).score;
+    const late = momentumScore(computeSignals(strongPair({ priceChange: { m5: 5, h1: 95 } }), NOW)).score;
+    assert.ok(early > late, `early ${early} should beat late ${late}`);
+  });
+
+  it("prefers a deep pool over a thin one", () => {
+    const deep = momentumScore(computeSignals(strongPair({ liquidity: { usd: 160_000 } }), NOW)).score;
+    const thin = momentumScore(computeSignals(strongPair({ liquidity: { usd: 25_000 } }), NOW)).score;
+    assert.ok(deep > thin, `deep ${deep} should beat thin ${thin}`);
+  });
+
   it("halves the score while the price is dumping", () => {
     const dumping = momentumScore(computeSignals(strongPair({ priceChange: { m5: -25, h1: 60 } }), NOW));
     assert.ok(dumping.parts.dumpPenalty !== undefined && dumping.parts.dumpPenalty < 0);

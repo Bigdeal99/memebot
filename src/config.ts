@@ -74,7 +74,7 @@ export const config = {
     minAgeMin: num("MIN_AGE_MIN", 60),
     minLiquidityUsd: num("MIN_LIQUIDITY_USD", 15_000),
     minMarketCapUsd: num("MIN_MCAP_USD", 30_000),
-    maxMarketCapUsd: num("MAX_MCAP_USD", 3_000_000),
+    maxMarketCapUsd: num("MAX_MCAP_USD", 30_000_000),
     maxAgeHours: num("MAX_AGE_HOURS", 48),
     minTxnsH1: num("MIN_TXNS_H1", 150),
     minVolumeH1Usd: num("MIN_VOLUME_H1_USD", 10_000),

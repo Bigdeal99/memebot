@@ -97,18 +97,19 @@ export function momentumScore(s: Signals): MomentumScore {
     buyPressureH1: ramp(s.buyRatioH1, 0.5, 0.7, 20),
     buyPressureM5: ramp(s.buyRatioM5, 0.5, 0.75, 15),
     acceleration: ramp(s.acceleration, 1, 3, 20),
-    turnover: ramp(s.volumeToLiquidityH1, 0.5, 3, 15),
-    // Rising is good, but a +300% hour usually means we would be someone's exit liquidity.
-    trendH1: s.changeH1Pct > 300 ? 0 : ramp(s.changeH1Pct, 0, 100, 15),
+    turnover: ramp(s.volumeToLiquidityH1, 0.5, 3, 10),
+    // Early in the move is best. Paper data: losers were bought after ~+90% in the hour, winners at ~+45%.
+    trendH1: s.changeH1Pct > 150 ? 0 : s.changeH1Pct > 80 ? 5 : ramp(s.changeH1Pct, 0, 40, 15),
     trendM5: s.changeM5Pct > 40 ? 0 : ramp(s.changeM5Pct, 0, 15, 10),
-    socials: s.hasSocials ? 5 : 0,
+    // Deep pools rug less, move more cleanly and cost less slippage. Winners so far had ~4x the liquidity.
+    depth: ramp(s.liquidityUsd, 20_000, 150_000, 10),
   };
   const raw = Object.values(parts).reduce((a, b) => a + b, 0);
   let score = raw;
   if (s.changeM5Pct < -15 || s.changeH1Pct < -20) {
     score *= 0.5; // dumping now, or a falling knife over the last hour: that is not momentum
     parts.dumpPenalty = score - raw;
-  } else if (s.changeM5Pct > 40 || s.changeH1Pct > 300) {
+  } else if (s.changeM5Pct > 40 || s.changeH1Pct > 150) {
     score *= 0.5; // vertical candle: late buyers become exit liquidity
     parts.overextendedPenalty = score - raw;
   }
