@@ -35,6 +35,7 @@ export interface RugReport {
   markets?: RugMarket[] | null;
   totalMarketLiquidity?: number;
   graphInsidersDetected?: number;
+  creator?: string;
   lpLockedPct?: number;
 }
 

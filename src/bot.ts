@@ -11,8 +11,8 @@ import { discoverTrending } from "./sources/geckoterminal.js";
 import { PumpPortalFeed } from "./sources/pumpportal.js";
 import { getRugReport } from "./sources/rugcheck.js";
 import { type Store } from "./store.js";
-import { shouldEnter } from "./strategies.js";
-import type { DexPair, HypeVerdict, Logger, StrategyParams, TokenRef } from "./types.js";
+import { deskHoldersAllows, deskMarketAllows, type EntryDecision, shouldEnter } from "./strategies.js";
+import type { DebateResult, DexPair, HypeVerdict, Logger, StrategyParams, TokenRef } from "./types.js";
 
 interface Watch {
   mint: string;
@@ -54,7 +54,8 @@ export class Bot {
     this.grok = new GrokAnalyst(cfg.ai, log);
     this.telegram = new Telegram(cfg.telegram.botToken, cfg.telegram.chatId, log);
     this.pump = new PumpPortalFeed((mint) => this.add(mint, "pump-migration", cfg.migrationDelayMin), log);
-    this.minMomentum = Math.min(...strategies.map((s) => s.minMomentum));
+    // Desk strategies have no momentum rule; their scout filter decides whether a coin is worth a RugCheck call.
+    this.minMomentum = Math.min(...strategies.filter((s) => !s.desk).map((s) => s.minMomentum));
     this.funnel = store.loadJson<Funnel>(FUNNEL_FILE) ?? newFunnel();
   }
 
@@ -167,7 +168,8 @@ export class Bot {
     }
 
     const momentum = momentumScore(signals);
-    if (momentum.score < this.minMomentum) {
+    const deskCandidate = this.strategies.some((s) => s.desk && deskMarketAllows(s.desk, signals) === null);
+    if (momentum.score < this.minMomentum && !deskCandidate) {
       this.funnel.weakMomentum++;
       return this.reschedule(w, now);
     }
@@ -197,13 +199,47 @@ export class Bot {
 
     const outcomes: Record<string, string> = {};
     let boughtAny = false;
+    let debate: DebateResult | null | undefined;
     for (const st of this.strategies) {
       const blocked = this.book.canEnter(st.name, w.mint, now);
       if (blocked) {
         outcomes[st.name] = `skip: ${blocked}`;
         continue;
       }
-      const d = shouldEnter(st, momentum.score, ai, this.grok.enabled, signals.liquidityUsd);
+      if (st.minAgeMin !== undefined && signals.ageMin < st.minAgeMin) {
+        outcomes[st.name] = `skip: pool younger than ${st.minAgeMin} min`;
+        continue;
+      }
+      if (st.desk) {
+        const kill = deskMarketAllows(st.desk, signals) ?? deskHoldersAllows(st.desk, safety.metrics);
+        if (kill) {
+          outcomes[st.name] = `skip: filter kill: ${kill}`;
+          continue;
+        }
+      }
+      let d: EntryDecision;
+      if (st.requireDebate) {
+        if (debate === undefined && this.grok.enabled) {
+          this.funnel.askedGrok++;
+          debate = await this.grok.debate(token, signals, safety.metrics, now);
+          if (debate) {
+            const points = debate.points
+              .map((p, i) => `Bear${i + 1}: ${p.reason} -> ${p.rebutted ? "rebutted" : "NOT rebutted"}`)
+              .join(" | ");
+            this.log.info(`Desk debate on ${token.symbol}: ${debate.passed ? "BUY" : "VETO"} | ${points}`);
+          }
+        }
+        const unrebutted = debate?.points.find((p) => !p.rebutted);
+        d = !this.grok.enabled
+          ? { enter: false, reason: "needs XAI_API_KEY for the debate" }
+          : !debate
+            ? { enter: false, reason: "no debate (budget used or error)" }
+            : debate.passed
+              ? { enter: true, reason: "Analyst rebutted all 3 Bear points" }
+              : { enter: false, reason: `Bear veto: ${unrebutted?.reason ?? "debate did not have 3 points"}` };
+      } else {
+        d = shouldEnter(st, momentum.score, ai, this.grok.enabled, signals.liquidityUsd);
+      }
       outcomes[st.name] = d.enter ? `BUY: ${d.reason}` : `skip: ${d.reason}`;
       if (!d.enter) continue;
       boughtAny = true;
@@ -230,6 +266,7 @@ export class Bot {
       momentumParts: momentum.parts,
       safety: safety.metrics,
       ai,
+      ...(debate ? { debate } : {}),
       outcomes,
     });
     this.store.saveJson(STATE_FILE, this.book.snapshot());

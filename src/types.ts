@@ -62,6 +62,35 @@ export interface SafetyMetrics {
   riskScore?: number;
   lpLockedPct?: number;
   insidersDetected?: number;
+  /** Share of supply held by the token's creator wallet, when RugCheck names the creator. */
+  devPct?: number;
+  /** RugCheck risk flags as "level: name". */
+  risks?: string[];
+}
+
+/** Rules copied from a "Grok desk" prompt: who the scout may look at and what the filter kills. */
+export interface DeskParams {
+  maxAgeMin: number;
+  minMarketCapUsd: number;
+  maxMarketCapUsd: number;
+  minLiquidityUsd: number;
+  maxTop10Pct: number;
+  maxDevPct: number;
+  minLpLockedPct: number;
+}
+
+export interface DebatePoint {
+  reason: string;
+  evidence: string;
+  rebuttal: string;
+  rebutted: boolean;
+}
+
+/** Bear gives 3 reasons not to buy, Analyst rebuts each one. Any unrebutted reason is a veto. */
+export interface DebateResult {
+  points: DebatePoint[];
+  summary: string;
+  passed: boolean;
 }
 
 export interface SafetyResult {
@@ -131,6 +160,13 @@ export interface StrategyParams {
   timeStopMinGainPct: number;
   /** Strategy-specific minimum pool size, on top of the global filter. */
   minLiquidityUsd?: number;
+  /** Strategy-specific minimum pool age in minutes, on top of the global filter. */
+  minAgeMin?: number;
+  /** Bet this % of the strategy's current money per trade instead of a fixed size. */
+  positionPctOfEquity?: number;
+  desk?: DeskParams;
+  /** Needs a Bear-vs-Analyst debate that the Analyst wins on every point. */
+  requireDebate?: boolean;
   basket?: BasketParams;
 }
 

@@ -4,7 +4,7 @@ import { type Funnel, topReasons } from "./funnel.js";
 import type { BookState } from "./paper/book.js";
 import { Store } from "./store.js";
 import { defaultStrategies } from "./strategies.js";
-import type { BasketParams, ClosedTrade, HypeVerdict } from "./types.js";
+import type { BasketParams, ClosedTrade, DebateResult, HypeVerdict } from "./types.js";
 
 export interface StrategyStats {
   strategy: string;
@@ -161,6 +161,15 @@ interface DecisionRow {
   mint: string;
   symbol: string;
   ai?: HypeVerdict | null;
+  debate?: DebateResult;
+}
+
+/** grok_desk debates: latest per coin. */
+export function debateSummary(decisions: DecisionRow[]): { coins: number; passed: number } {
+  const latest = new Map<string, DebateResult>();
+  for (const d of decisions) if (d.debate) latest.set(d.mint, d.debate);
+  const all = [...latest.values()];
+  return { coins: all.length, passed: all.filter((d) => d.passed).length };
 }
 
 export interface GrokSummary {
@@ -246,7 +255,15 @@ function main(): void {
   for (const line of basketLines(state, names, (n) => strategies.find((s) => s.name === n)?.basket)) {
     console.log(`\n${line}`);
   }
-  printGrok(grokSummary(store.readAll<DecisionRow>("decisions.jsonl")));
+  const decisions = store.readAll<DecisionRow>("decisions.jsonl");
+  printGrok(grokSummary(decisions));
+  const debates = debateSummary(decisions);
+  if (debates.coins > 0) {
+    console.log(
+      `grok_desk debates: ${debates.coins} coins, Analyst won ${debates.passed}, Bear vetoed ${debates.coins - debates.passed}. ` +
+        "Full debates are in data/decisions.jsonl.",
+    );
+  }
   printFunnel(store.loadJson<Funnel>("funnel.json"));
   if (trades.length === 0) return;
 

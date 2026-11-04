@@ -75,7 +75,9 @@ export class PaperBook {
   /** Basket strategies split the round's starting money into equal slices; others use a fixed size. */
   positionSize(st: StrategyParams): number {
     const round = this.roundOf(st.name);
-    return st.basket && round ? round.startEquityUsd / st.basket.slots : st.positionUsd;
+    if (st.basket && round) return round.startEquityUsd / st.basket.slots;
+    if (st.positionPctOfEquity !== undefined) return (this.equity(st.name) * st.positionPctOfEquity) / 100;
+    return st.positionUsd;
   }
 
   snapshot(): BookState {

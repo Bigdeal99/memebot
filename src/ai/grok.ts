@@ -1,5 +1,5 @@
 import type { AiConfig } from "../config.js";
-import type { AiVerdictKind, HypeVerdict, Logger, Signals, TokenRef } from "../types.js";
+import type { AiVerdictKind, DebatePoint, DebateResult, HypeVerdict, Logger, SafetyMetrics, Signals, TokenRef } from "../types.js";
 import { requestJson } from "../util/http.js";
 
 const XAI_RESPONSES_URL = "https://api.x.ai/v1/responses";
@@ -25,6 +25,72 @@ red flags. Everything else is "watch".
 Answer with ONLY a JSON object, no markdown, in exactly this shape:
 {"hype": 0-10, "organic": 0-10, "mentions": "rough count and trend", "narrative": "one sentence",
  "red_flags": ["..."], "verdict": "buy" | "watch" | "avoid", "reason": "one or two sentences"}`;
+
+const DEBATE_PROMPT = `You run a two-sided review of a possible Solana memecoin buy, using ONLY the on-chain data given.
+Never invent numbers or facts that are not in the data.
+
+BEAR: give exactly 3 concrete reasons NOT to buy. Each must cite a specific number or flag from the data.
+ANALYST: rebut each Bear reason using the data. If the data does not clearly refute it, admit it and set
+"rebutted": false. Do not rebut with hope, narratives or things the data does not show.
+
+Answer with ONLY a JSON object, no markdown, in exactly this shape:
+{"debate": [{"reason": "...", "evidence": "the number or flag cited", "rebuttal": "...", "rebutted": true|false},
+            {...}, {...}],
+ "summary": "one sentence"}`;
+
+export function buildDebatePrompt(token: TokenRef, s: Signals, safety: SafetyMetrics): string {
+  return JSON.stringify(
+    {
+      token: { name: token.name, symbol: token.symbol, mint: token.mint },
+      market: {
+        priceUsd: s.priceUsd,
+        marketCapUsd: Math.round(s.marketCapUsd),
+        liquidityUsd: Math.round(s.liquidityUsd),
+        poolAgeMinutes: Math.round(s.ageMin),
+        priceChangePct: { m5: s.changeM5Pct, h1: s.changeH1Pct, h6: s.changeH6Pct },
+        volumeUsd: { m5: Math.round(s.volumeM5Usd), h1: Math.round(s.volumeH1Usd), h24: Math.round(s.volumeH24Usd) },
+        txns: { m5: { buys: s.buysM5, sells: s.sellsM5 }, h1: { buys: s.buysH1, sells: s.sellsH1 } },
+        volumeToLiquidityH1: Number(s.volumeToLiquidityH1.toFixed(2)),
+        volumeAcceleration: Number(s.acceleration.toFixed(2)),
+      },
+      holders: {
+        top10PctExcludingPools: safety.top10Pct,
+        biggestHolderPct: safety.topHolderPct,
+        insiderPct: safety.insiderPct,
+        devWalletPct: safety.devPct,
+        insiderWalletsDetected: safety.insidersDetected,
+      },
+      contract: { rugcheckRiskScore: safety.riskScore, lpLockedOrBurnedPct: safety.lpLockedPct, rugcheckFlags: safety.risks },
+    },
+    null,
+    1,
+  );
+}
+
+/** Parses the debate. Anything other than exactly 3 points, every one rebutted, is a veto. */
+export function parseDebate(text: string): DebateResult | null {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(raw.debate)) return null;
+  const points: DebatePoint[] = raw.debate.map((p: Record<string, unknown>) => ({
+    reason: String(p?.reason ?? ""),
+    evidence: String(p?.evidence ?? ""),
+    rebuttal: String(p?.rebuttal ?? ""),
+    rebutted: p?.rebutted === true,
+  }));
+  return {
+    points,
+    summary: String(raw.summary ?? ""),
+    passed: points.length === 3 && points.every((p) => p.rebutted),
+  };
+}
 
 export function buildPrompt(token: TokenRef, s: Signals): string {
   return [
@@ -96,6 +162,9 @@ export class GrokAnalyst {
   private readonly cache = new Map<string, { at: number; verdict: HypeVerdict }>();
   private day = "";
   private callsToday = 0;
+  private readonly debateCache = new Map<string, { at: number; result: DebateResult }>();
+  private debateDay = "";
+  private debatesToday = 0;
 
   constructor(
     private readonly cfg: AiConfig,
@@ -108,6 +177,45 @@ export class GrokAnalyst {
 
   callsUsedToday(now = Date.now()): number {
     return utcDay(now) === this.day ? this.callsToday : 0;
+  }
+
+  debatesUsedToday(now = Date.now()): number {
+    return utcDay(now) === this.debateDay ? this.debatesToday : 0;
+  }
+
+  /** Bear vs Analyst on our own on-chain numbers (no X search). Null when disabled, out of budget or unusable. */
+  async debate(token: TokenRef, s: Signals, safety: SafetyMetrics, now = Date.now()): Promise<DebateResult | null> {
+    if (!this.enabled) return null;
+    const cached = this.debateCache.get(token.mint);
+    if (cached && now - cached.at < this.cfg.cacheMin * 60_000) return cached.result;
+
+    if (utcDay(now) !== this.debateDay) {
+      this.debateDay = utcDay(now);
+      this.debatesToday = 0;
+    }
+    if (this.debatesToday >= this.cfg.maxDebatesPerDay) return null;
+    this.debatesToday++;
+
+    const res = await requestJson<ResponsesApiResult>(XAI_RESPONSES_URL, {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.cfg.apiKey}` },
+      body: {
+        model: this.cfg.model,
+        input: [
+          { role: "system", content: DEBATE_PROMPT },
+          { role: "user", content: buildDebatePrompt(token, s, safety) },
+        ],
+      },
+      timeoutMs: 120_000,
+      retries: 1,
+    });
+    const result = res ? parseDebate(extractText(res)) : null;
+    if (!result) {
+      this.log.warn(`Grok debate gave no usable answer for ${token.symbol}`);
+      return null;
+    }
+    this.debateCache.set(token.mint, { at: now, result });
+    return result;
   }
 
   async assess(token: TokenRef, s: Signals, now = Date.now()): Promise<HypeVerdict | null> {

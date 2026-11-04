@@ -66,6 +66,15 @@ export function evaluateSafety(report: RugReport | null, cfg: SafetyConfig): Saf
     reasons.push("holder data missing");
   }
 
+  let devPct: number | undefined;
+  if (report.creator) {
+    devPct = round(
+      (report.topHolders ?? [])
+        .filter((h) => h.owner === report.creator || h.address === report.creator)
+        .reduce((sum, h) => sum + (h.pct ?? 0), 0),
+    );
+  }
+
   const lp = lpLockedPct(report);
   if (lp === undefined) {
     if (cfg.strictUnknown) reasons.push("LP lock status unknown");
@@ -84,6 +93,8 @@ export function evaluateSafety(report: RugReport | null, cfg: SafetyConfig): Saf
       riskScore,
       lpLockedPct: lp === undefined ? undefined : round(lp),
       insidersDetected: report.graphInsidersDetected,
+      devPct,
+      risks: (report.risks ?? []).map((r) => `${r.level ?? "info"}: ${r.name}`),
     },
   };
 }

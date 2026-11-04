@@ -1,4 +1,4 @@
-import type { HypeVerdict, StrategyParams } from "./types.js";
+import type { DeskParams, HypeVerdict, SafetyMetrics, Signals, StrategyParams } from "./types.js";
 
 /**
  * The strategy tournament. Every strategy sees the same tokens and trades its own paper bankroll,
@@ -12,6 +12,8 @@ export function defaultStrategies(positionUsd: number): StrategyParams[] {
     maxOpen: 5,
     dailyLossLimitUsd: positionUsd * 4,
     reentryCooldownMin: 360,
+    // The global filter now lets 30-min-old pools through (for grok_desk); everyone else still waits an hour.
+    minAgeMin: 60,
     minHype: 0,
     minOrganic: 0,
     allowWatchVerdict: false,
@@ -114,6 +116,36 @@ export function defaultStrategies(positionUsd: number): StrategyParams[] {
     },
     {
       ...common,
+      name: "grok_desk",
+      description:
+        "The viral 'Grok desk' prompt, as written: scout 30m-72h / $300k-$20M, hard filters, Bear must give 3 " +
+        "on-chain reasons not to buy and the Analyst must rebut all of them, 8% per trade, -6% stop, trail after +12%.",
+      minAgeMin: 30,
+      minMomentum: 0, // the prompt has no momentum rule: the debate is its only judgement
+      requireAi: false,
+      requireDebate: true,
+      positionUsd: 0,
+      positionPctOfEquity: 8,
+      maxOpen: 12,
+      dailyLossLimitUsd: Number.MAX_SAFE_INTEGER, // the prompt has no daily limit
+      stopLossPct: 6,
+      takeProfits: [],
+      trailingStopPct: 6, // the prompt does not say how wide the trail is; same as the stop
+      trailActivationMultiple: 1.12,
+      maxHoldMin: 24 * 60,
+      timeStopMinGainPct: 0,
+      desk: {
+        maxAgeMin: 72 * 60,
+        minMarketCapUsd: 300_000,
+        maxMarketCapUsd: 20_000_000,
+        minLiquidityUsd: 40_000,
+        maxTop10Pct: 25,
+        maxDevPct: 3,
+        minLpLockedPct: 95, // "LP burned"
+      },
+    },
+    {
+      ...common,
       name: "basket",
       description:
         "Up to 50 coins in equal slices. Sells ALL when the basket doubles, halves or turns 7 days old, then goes again with everything.",
@@ -159,4 +191,26 @@ export function shouldEnter(
   if (ai.hype < st.minHype) return { enter: false, reason: `hype ${ai.hype} < ${st.minHype}` };
   if (ai.organic < st.minOrganic) return { enter: false, reason: `organic ${ai.organic} < ${st.minOrganic}` };
   return { enter: true, reason: `momentum ${momentum}, hype ${ai.hype}, organic ${ai.organic}` };
+}
+
+/** The desk's scout rules: cheap checks on market data, done before any RugCheck call. */
+export function deskMarketAllows(d: DeskParams, s: Signals): string | null {
+  if (s.ageMin > d.maxAgeMin) return `older than ${d.maxAgeMin / 60}h`;
+  if (s.marketCapUsd < d.minMarketCapUsd || s.marketCapUsd > d.maxMarketCapUsd) {
+    return `mcap $${Math.round(s.marketCapUsd)} outside $${d.minMarketCapUsd}-$${d.maxMarketCapUsd}`;
+  }
+  if (s.liquidityUsd < d.minLiquidityUsd) return `pool $${Math.round(s.liquidityUsd)} < $${d.minLiquidityUsd}`;
+  return null;
+}
+
+/** The desk's filter kills on holders and liquidity lock. Unknown data counts as a kill, except dev share. */
+export function deskHoldersAllows(d: DeskParams, m: SafetyMetrics): string | null {
+  if (m.top10Pct === undefined || m.top10Pct > d.maxTop10Pct) {
+    return `top 10 own ${m.top10Pct ?? "?"}% (max ${d.maxTop10Pct}%)`;
+  }
+  if (m.devPct !== undefined && m.devPct > d.maxDevPct) return `dev wallet ${m.devPct}% (max ${d.maxDevPct}%)`;
+  if (m.lpLockedPct === undefined || m.lpLockedPct < d.minLpLockedPct) {
+    return `LP burned ${m.lpLockedPct ?? "?"}% (min ${d.minLpLockedPct}%)`;
+  }
+  return null;
 }

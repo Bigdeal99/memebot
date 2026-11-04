@@ -49,6 +49,7 @@ export interface AiConfig {
   maxCallsPerDay: number;
   minMomentumForAi: number;
   cacheMin: number;
+  maxDebatesPerDay: number;
 }
 
 export const config = {
@@ -71,11 +72,11 @@ export const config = {
   },
 
   filters: {
-    minAgeMin: num("MIN_AGE_MIN", 60),
+    minAgeMin: num("MIN_AGE_MIN", 30),
     minLiquidityUsd: num("MIN_LIQUIDITY_USD", 15_000),
     minMarketCapUsd: num("MIN_MCAP_USD", 30_000),
     maxMarketCapUsd: num("MAX_MCAP_USD", 30_000_000),
-    maxAgeHours: num("MAX_AGE_HOURS", 48),
+    maxAgeHours: num("MAX_AGE_HOURS", 72),
     minTxnsH1: num("MIN_TXNS_H1", 150),
     minVolumeH1Usd: num("MIN_VOLUME_H1_USD", 10_000),
   } satisfies FilterConfig,
@@ -96,6 +97,8 @@ export const config = {
     maxCallsPerDay: num("AI_MAX_CALLS_PER_DAY", 20),
     minMomentumForAi: num("AI_MIN_MOMENTUM", 55),
     cacheMin: num("AI_CACHE_MIN", 30),
+    // Debates use no X search, only our own on-chain numbers, so they cost a fraction of a cent each.
+    maxDebatesPerDay: num("DESK_MAX_DEBATES_PER_DAY", 100),
   } satisfies AiConfig,
 
   telegram: {
